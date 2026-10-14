@@ -1,5 +1,6 @@
 #include "CGI.h"
-	
+#include <cstring>
+
 namespace jlm {
 
 	std::ostream & operator << (std::ostream & outs, const jlm::CGI & cgi)
@@ -47,7 +48,8 @@ namespace jlm {
 		QueryString(getenv("QUERY_STRING")),
 		ContentType(getenv("CONTENT_TYPE")),
 		ContentLength(getenv("CONTENT_LENGTH")),
-		HttpCookie(getenv("HTTP_COOKIE"))
+		HttpCookie(getenv("HTTP_COOKIE")),
+		PostBuffer(nullptr)
 	{
 		if(QueryString)
 			initializeMap(Get, QueryString);
@@ -66,7 +68,7 @@ namespace jlm {
 	void CGI::initializePost()
 	{
 		int content_length = atoi(ContentLength);
-		PostBuffer = new char[content_length * sizeof(char)];
+		PostBuffer = new char[content_length + 1];
 		fread(PostBuffer, sizeof(char), content_length, stdin);
 		*(PostBuffer + content_length) = '\0';
 		
@@ -86,7 +88,7 @@ namespace jlm {
 				if((pEnd = (char *)memchr(pEnd+1, boundary[0], clmbl - int(pEnd - PostBuffer))) == NULL)
 					break;
 		
-			while(pEnd != '\0'){
+			while(pEnd != nullptr){
 				/* find Start/End of header */
 				hStart = (char *)(pStart + boundary_length + 2); // \r\n
 				hEnd = strstr(hStart, "\r\n\r\n");
@@ -102,17 +104,17 @@ namespace jlm {
 				/* fine part name , then skip first quote and terminate on last */
 				name = strstr(hStart, "form-data; name=") + 16;
 				filename=strstr(hStart, "; filename=");
-				memset(strchr(name + 1, name++[0]), '\0' , 1) ;
+				{ const char quote = *name++; *strchr(name, quote) = '\0'; }
 				
 				/* is this a file? */
 				if(filename){
 					filename += 11;
 					/* skip first quote and terminate on last */
-					memset(strchr(filename + 1, filename++[0]), '\0', 1) ;
+					{ const char quote = *filename++; *strchr(filename, quote) = '\0'; }
 					/* add filename as value for Post map */
 					Post.insert(StringPair(name, filename));
 					/* location of file data and length in the PostBuffer */
-					FileData file= {hStart, (hEnd - hStart), bStart, int(bEnd - bStart)};
+					FileData file= {hStart, size_t(hEnd - hStart), bStart, size_t(bEnd - bStart)};
 					/* add file info to file map so it can be retrieved */
 					File.insert(std::pair<std::string,FileData>(filename, file));
 					/* restore POST data */
@@ -145,7 +147,7 @@ namespace jlm {
 	{
 		std::string tmpkey, tmpvalue;
 		std::string *tmpstr = &tmpkey;
-		register char* raw_data = (char *)EnvData;
+		char* raw_data = (char *)EnvData;
 		while (*raw_data != '\0') {
 			if (*raw_data == '&') {
                 if (tmpkey != "") {
@@ -184,7 +186,7 @@ namespace jlm {
 		{
 			if (*pSrc == '%')
 			{
-				char dec1, dec2;
+				int dec1, dec2;
 				if (-1 != (dec1 = HEX2DEC[*(pSrc + 1)]) && -1 != (dec2 = HEX2DEC[*(pSrc + 2)]))
 				{
 					*pEnd++ = (dec1 << 4) + dec2;
@@ -196,7 +198,7 @@ namespace jlm {
 				*pEnd++ = ' ';
 			else
 				*pEnd++ = *pSrc;
-			*pSrc++;
+			pSrc++;
 		}
 
 		// the last 2- chars
